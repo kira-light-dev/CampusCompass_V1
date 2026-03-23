@@ -14,7 +14,7 @@ async function extractWithGroq(text: string): Promise<string> {
     },
     body: JSON.stringify({
       model: "llama-3.3-70b-versatile",
-      max_tokens: 4000,
+      max_tokens: 8000,
       messages: [{
         role: "user",
         content: `You are a syllabus parser. Extract all subjects and their topics from this content.
@@ -34,7 +34,7 @@ Rules:
 - Be thorough and extract everything
 
 Content:
-${text.substring(0, 6000)}`
+${text.substring(0, 15000)}`
       }]
     })
   })
