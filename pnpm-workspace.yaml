@@ -1,0 +1,4 @@
+onlyBuiltDependencies:
+  - bcrypt
+  - sharp
+  - tesseract.js
