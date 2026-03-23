@@ -47,7 +47,16 @@ function parseSubjectsFromJSON(text: string) {
   const match = text.match(/\[[\s\S]*\]/)
   if (!match) throw new Error("No JSON found in response")
   const parsed = JSON.parse(match[0])
-  return Array.isArray(parsed) ? parsed : []
+  const raw = Array.isArray(parsed) ? parsed : []
+
+  // Ensure topics are always { name: string, completed: boolean }
+  return raw.map((s: any) => ({
+    name: s.name,
+    topics: (s.topics || []).map((t: any) => ({
+      name: typeof t === "string" ? t : t.name,
+      completed: false
+    }))
+  }))
 }
 
 async function extractTextFromPDF(buffer: Buffer): Promise<string> {

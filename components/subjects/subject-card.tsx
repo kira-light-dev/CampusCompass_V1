@@ -50,7 +50,7 @@ export default function SubjectCard({ subjectId, name, topics, onProgressChange 
   const currentProgress = topicStates.length === 0 ? 0 : Math.round((completedCount / topicStates.length) * 100)
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
+    <div className="rounded-lg border border-border bg-card p-4 overflow-hidden">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-foreground">{name}</h3>
         <div className="flex items-center gap-2">
