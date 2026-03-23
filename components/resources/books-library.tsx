@@ -14,6 +14,8 @@ interface BookFile {
   size: number
 }
 
+const STORAGE_KEY = "campuscompass_books"
+
 const formatSize = (bytes: number) => {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   return `${(bytes / 1024).toFixed(0)} KB`
@@ -29,6 +31,19 @@ const openFile = (url: string) => {
   window.open(URL.createObjectURL(blob), "_blank")
 }
 
+const loadBooks = (): BookFile[] => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+const saveBooks = (books: BookFile[]) => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(books))
+}
+
 export function BooksLibrary() {
   const [books, setBooks] = useState<BookFile[]>([])
   const [uploading, setUploading] = useState(false)
@@ -37,31 +52,54 @@ export function BooksLibrary() {
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState("")
+  const [error, setError] = useState("")
 
   useEffect(() => {
-    fetch("/api/books")
-      .then(r => r.json())
-      .then(data => setBooks(Array.isArray(data) ? data : []))
+    setBooks(loadBooks())
   }, [])
 
   const upload = async () => {
     if (!file || !name.trim()) return
     setUploading(true)
-    const formData = new FormData()
-    formData.append("file", file)
-    formData.append("name", name)
-    await fetch("/api/books", { method: "POST", body: formData })
-    const refreshed = await fetch("/api/books").then(r => r.json())
-    setBooks(Array.isArray(refreshed) ? refreshed : [])
-    setName("")
-    setFile(null)
-    setShowForm(false)
+    setError("")
+
+    try {
+      // Check file size — localStorage limit is ~5MB per item
+      if (file.size > 4 * 1024 * 1024) {
+        setError("File too large. Please upload files under 4MB.")
+        setUploading(false)
+        return
+      }
+
+      const arrayBuffer = await file.arrayBuffer()
+      const base64 = Buffer.from(arrayBuffer).toString("base64")
+      const dataUrl = `data:${file.type};base64,${base64}`
+
+      const newBook: BookFile = {
+        _id: Date.now().toString(),
+        name: name.trim(),
+        url: dataUrl,
+        fileType: file.type,
+        size: file.size,
+      }
+
+      const updated = [newBook, ...books]
+      saveBooks(updated)
+      setBooks(updated)
+      setName("")
+      setFile(null)
+      setShowForm(false)
+    } catch (e) {
+      setError("Upload failed. File may be too large for browser storage.")
+    }
+
     setUploading(false)
   }
 
-  const deleteBook = async (_id: string) => {
-    await fetch(`/api/books/${_id}`, { method: "DELETE" })
-    setBooks(prev => prev.filter(b => b._id !== _id))
+  const deleteBook = (_id: string) => {
+    const updated = books.filter(b => b._id !== _id)
+    saveBooks(updated)
+    setBooks(updated)
   }
 
   const startEdit = (book: BookFile) => {
@@ -74,17 +112,11 @@ export function BooksLibrary() {
     setEditName("")
   }
 
-  const saveEdit = async (_id: string) => {
+  const saveEdit = (_id: string) => {
     if (!editName.trim()) return
-    const res = await fetch(`/api/books/${_id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: editName.trim() })
-    })
-    if (res.ok) {
-      const updated = await res.json()
-      setBooks(prev => prev.map(b => b._id === _id ? { ...b, name: updated.name } : b))
-    }
+    const updated = books.map(b => b._id === _id ? { ...b, name: editName.trim() } : b)
+    saveBooks(updated)
+    setBooks(updated)
     setEditingId(null)
     setEditName("")
   }
@@ -98,7 +130,7 @@ export function BooksLibrary() {
         </div>
         <div className="flex items-center gap-3">
           <Link href="/resources" className="text-sm text-primary hover:underline cursor-pointer">← Back</Link>
-          <Button size="sm" onClick={() => setShowForm(!showForm)} className="cursor-pointer">
+          <Button size="sm" onClick={() => { setShowForm(!showForm); setError("") }} className="cursor-pointer">
             <Upload className="h-4 w-4 mr-2" />
             {showForm ? "Cancel" : "Upload Book"}
           </Button>
@@ -118,9 +150,11 @@ export function BooksLibrary() {
             <input
               type="file"
               accept=".pdf,.jpg,.jpeg,.png,.docx"
-              onChange={e => setFile(e.target.files?.[0] || null)}
+              onChange={e => { setFile(e.target.files?.[0] || null); setError("") }}
               className="text-sm text-foreground cursor-pointer"
             />
+            <p className="text-xs text-muted-foreground">Max file size: 4MB</p>
+            {error && <p className="text-xs text-destructive">{error}</p>}
             <Button onClick={upload} disabled={uploading || !file || !name.trim()} className="w-full cursor-pointer">
               {uploading ? "Uploading..." : "Upload"}
             </Button>

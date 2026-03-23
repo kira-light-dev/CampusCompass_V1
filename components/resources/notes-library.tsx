@@ -14,6 +14,8 @@ interface NoteFile {
   size: number
 }
 
+const STORAGE_KEY = "campuscompass_notes"
+
 const getFileIcon = (fileType: string) => {
   if (fileType.includes("image")) return Image
   if (fileType.includes("pdf")) return FileText
@@ -35,6 +37,19 @@ const openFile = (url: string) => {
   window.open(URL.createObjectURL(blob), "_blank")
 }
 
+const loadNotes = (): NoteFile[] => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+const saveNotes = (notes: NoteFile[]) => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(notes))
+}
+
 export function NotesLibrary() {
   const [notes, setNotes] = useState<NoteFile[]>([])
   const [uploading, setUploading] = useState(false)
@@ -43,31 +58,53 @@ export function NotesLibrary() {
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState("")
+  const [error, setError] = useState("")
 
   useEffect(() => {
-    fetch("/api/notes")
-      .then(r => r.json())
-      .then(data => setNotes(Array.isArray(data) ? data : []))
+    setNotes(loadNotes())
   }, [])
 
   const upload = async () => {
     if (!file || !name.trim()) return
     setUploading(true)
-    const formData = new FormData()
-    formData.append("file", file)
-    formData.append("name", name)
-    await fetch("/api/notes", { method: "POST", body: formData })
-    const refreshed = await fetch("/api/notes").then(r => r.json())
-    setNotes(Array.isArray(refreshed) ? refreshed : [])
-    setName("")
-    setFile(null)
-    setShowForm(false)
+    setError("")
+
+    try {
+      if (file.size > 4 * 1024 * 1024) {
+        setError("File too large. Please upload files under 4MB.")
+        setUploading(false)
+        return
+      }
+
+      const arrayBuffer = await file.arrayBuffer()
+      const base64 = Buffer.from(arrayBuffer).toString("base64")
+      const dataUrl = `data:${file.type};base64,${base64}`
+
+      const newNote: NoteFile = {
+        _id: Date.now().toString(),
+        name: name.trim(),
+        url: dataUrl,
+        fileType: file.type,
+        size: file.size,
+      }
+
+      const updated = [newNote, ...notes]
+      saveNotes(updated)
+      setNotes(updated)
+      setName("")
+      setFile(null)
+      setShowForm(false)
+    } catch (e) {
+      setError("Upload failed. File may be too large for browser storage.")
+    }
+
     setUploading(false)
   }
 
-  const deleteNote = async (_id: string) => {
-    await fetch(`/api/notes/${_id}`, { method: "DELETE" })
-    setNotes(prev => prev.filter(n => n._id !== _id))
+  const deleteNote = (_id: string) => {
+    const updated = notes.filter(n => n._id !== _id)
+    saveNotes(updated)
+    setNotes(updated)
   }
 
   const startEdit = (note: NoteFile) => {
@@ -80,17 +117,11 @@ export function NotesLibrary() {
     setEditName("")
   }
 
-  const saveEdit = async (_id: string) => {
+  const saveEdit = (_id: string) => {
     if (!editName.trim()) return
-    const res = await fetch(`/api/notes/${_id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: editName.trim() })
-    })
-    if (res.ok) {
-      const updated = await res.json()
-      setNotes(prev => prev.map(n => n._id === _id ? { ...n, name: updated.name } : n))
-    }
+    const updated = notes.map(n => n._id === _id ? { ...n, name: editName.trim() } : n)
+    saveNotes(updated)
+    setNotes(updated)
     setEditingId(null)
     setEditName("")
   }
@@ -104,7 +135,7 @@ export function NotesLibrary() {
         </div>
         <div className="flex items-center gap-3">
           <Link href="/resources" className="text-sm text-primary hover:underline cursor-pointer">← Back</Link>
-          <Button size="sm" onClick={() => setShowForm(!showForm)} className="cursor-pointer">
+          <Button size="sm" onClick={() => { setShowForm(!showForm); setError("") }} className="cursor-pointer">
             <Upload className="h-4 w-4 mr-2" />
             {showForm ? "Cancel" : "Upload Note"}
           </Button>
@@ -124,9 +155,11 @@ export function NotesLibrary() {
             <input
               type="file"
               accept=".pdf,.jpg,.jpeg,.png,.docx"
-              onChange={e => setFile(e.target.files?.[0] || null)}
+              onChange={e => { setFile(e.target.files?.[0] || null); setError("") }}
               className="text-sm text-foreground cursor-pointer"
             />
+            <p className="text-xs text-muted-foreground">Max file size: 4MB</p>
+            {error && <p className="text-xs text-destructive">{error}</p>}
             <Button onClick={upload} disabled={uploading || !file || !name.trim()} className="w-full cursor-pointer">
               {uploading ? "Uploading..." : "Upload"}
             </Button>
